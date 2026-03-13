@@ -1,23 +1,16 @@
 # Documentation Agent
 
-This is a CLI-based LLM agent. Currently (Task 1), it acts as a basic pass-through to an LLM, answering questions and returning a structured JSON response.
+This is a CLI-based LLM agent capable of answering questions by reading the project documentation.
 
 ## Architecture
 - **Language**: Python
-- **LLM Provider**: Qwen Code API (self-hosted)
+- **LLM Provider**: Qwen Code API
 - **Model**: `qwen3-coder-plus`
-- **Interface**: CLI argument for input, standard output (stdout) for JSON results.
 
-## Setup
-Create a `.env.agent.secret` file in the root directory:
-\`\`\`env
-LLM_API_KEY=your_api_key
-LLM_API_BASE=http://your-vm-ip:port/v1
-LLM_MODEL=qwen3-coder-plus
-\`\`\`
+## Agentic Loop & Tools
+The agent uses a loop (max 10 iterations) to autonomously gather information before answering:
+1. **`list_files(path)`**: Lists contents of a directory. Used to discover available documentation (e.g., in the `wiki` folder).
+2. **`read_file(path)`**: Reads the contents of a specified file.
+*Security note*: Both tools use `os.path.abspath` to restrict access strictly to the project directory, preventing path traversal attacks.
 
-## Usage
-Run the agent using `uv`:
-\`\`\`bash
-uv run agent.py "What does REST stand for?"
-\`\`\`
+The agent's system prompt instructs it to use these tools sequentially, synthesize an answer, and return it alongside a `source` reference and the history of `tool_calls`.

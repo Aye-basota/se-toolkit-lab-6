@@ -27,3 +27,47 @@ def test_agent_basic_response():
     # Проверяем, что tool_calls - это пустой список (для Task 1)
     assert isinstance(output["tool_calls"], list), "'tool_calls' should be a list"
     assert len(output["tool_calls"]) == 0, "'tool_calls' should be empty for now"
+def test_agent_tool_list_files():
+    question = "What files are in the wiki folder? List them."
+    
+    result = subprocess.run(
+        ["uv", "run", "agent.py", question],
+        capture_output=True,
+        text=True
+    )
+
+    assert result.returncode == 0, f"Agent failed: {result.stderr}"
+    
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        assert False, f"Output is not valid JSON. Output was: {result.stdout}"
+
+    # Проверяем, что агент вызвал инструмент list_files
+    tool_used = any(call.get("tool") == "list_files" for call in output.get("tool_calls", []))
+    assert tool_used, "Agent did not use 'list_files' tool."
+
+def test_agent_tool_read_file_and_source():
+    # Мы спрашиваем то, что гарантированно потребует чтения файла
+    question = "How do you resolve a merge conflict? Look in the wiki/git-workflow.md file."
+    
+    result = subprocess.run(
+        ["uv", "run", "agent.py", question],
+        capture_output=True,
+        text=True
+    )
+
+    assert result.returncode == 0, f"Agent failed: {result.stderr}"
+    
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        assert False, f"Output is not valid JSON. Output was: {result.stdout}"
+
+    # Проверяем наличие источника
+    assert "source" in output, "Missing 'source' field in JSON"
+    assert "wiki" in output["source"].lower(), "Source should mention the wiki"
+
+    # Проверяем, что агент вызвал инструмент read_file
+    tool_used = any(call.get("tool") == "read_file" for call in output.get("tool_calls", []))
+    assert tool_used, "Agent did not use 'read_file' tool."
