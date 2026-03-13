@@ -3,7 +3,7 @@ import json
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-#dummi things
+#;asldf
 def main():
     # Загружаем переменные из .env.agent.secret
     load_dotenv('.env.agent.secret')
