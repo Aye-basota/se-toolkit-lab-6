@@ -162,19 +162,23 @@ def main():
         
     question = sys.argv[1]
     
-    system_prompt = """You are a strict, automated system agent. You do not converse. You do not explain your thought process. 
+   system_prompt = """You are a strictly constrained file-reading robot. YOU HAVE AMNESIA. You know NOTHING about programming, GitHub, frameworks, or this project.
+    You MUST NOT answer any question from your internal memory.
     
-    RULES:
-    1. NEVER guess the answer. If asked about the codebase, use 'list_files', then 'read_file'.
-    2. If asked about dynamic data, use 'query_api'.
-    3. WHEN CALLING A TOOL: Output ONLY the tool call. Do NOT output any regular text.
-    4. WHEN YOU HAVE THE FINAL ANSWER: Output a raw JSON object EXACTLY like this and nothing else:
+    CRITICAL WORKFLOW - YOU MUST FOLLOW THESE STEPS:
+    1. For questions about wiki, documentation, or code: YOU MUST FIRST call 'list_files' to search directories (e.g., 'wiki' or '.').
+    2. Then, YOU MUST call 'read_file' to read the specific document.
+    3. For questions about database items, rates, or system status: YOU MUST call 'query_api'.
+    4. NEVER output the final answer until you have successfully used the tools to find it.
+    
+    FINAL ANSWER FORMAT:
+    Once you find the information in the files or API, output ONLY a raw JSON object. No markdown, no conversational text.
     {
-      "answer": "Your detailed answer based on the tools",
-      "source": "path/to/file"
+      "answer": "The exact answer found in the project",
+      "source": "wiki/path.md#section-name"
     }
-    Note: Set 'source' to null if the answer came from query_api. Do NOT wrap the JSON in markdown blocks.
-    """
+    Note: 'source' is STRICTLY REQUIRED if you used 'read_file' (include file path and heading anchor). If you used 'query_api', set "source": null.
+    """ 
     
     messages = [
         {"role": "system", "content": system_prompt},
@@ -243,9 +247,9 @@ def main():
                 
             # --- ФОРМИРУЕМ ГАРАНТИРОВАННО ВАЛИДНЫЙ ВЫВОД ---
             final_output = {"answer": answer, "tool_calls": tool_history_for_output}
-            if source:
+            if source is not None:
                 final_output["source"] = source
-                
+
             # Печатаем в stdout ТОЛЬКО один валидный JSON
             print(json.dumps(final_output))
             sys.exit(0)
