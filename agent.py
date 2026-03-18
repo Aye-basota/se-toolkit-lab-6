@@ -161,7 +161,7 @@ def main():
         sys.exit(1)
         
     question = sys.argv[1]
-    
+
     system_prompt = """You are a helpful and intelligent system agent.
     Your goal is to answer the user's question by actively exploring the system using your tools.
     
@@ -174,8 +174,9 @@ def main():
       "source": "wiki/filename.md#section-name"
     }
     Note: The 'source' field is required if the answer came from a wiki file. If it came from query_api or source code, you can set "source": null. Do NOT wrap the JSON in ```json blocks.
-    """
-        messages = [
+    """  
+    
+    messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": question}
     ]
