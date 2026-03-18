@@ -162,19 +162,20 @@ def main():
         
     question = sys.argv[1]
     
-    system_prompt = """You are an intelligent system agent with access to files and a live API.
-    - Use 'list_files' and 'read_file' for documentation and source code.
-    - Use 'query_api' for dynamic system states (item counts, rates, ports).
+    system_prompt = """You are a helpful and intelligent system agent.
+    Your goal is to answer the user's question by actively exploring the system using your tools.
     
-    IMPORTANT: You MUST return ONLY a valid JSON object:
+    RULES:
+    1. Do NOT guess the answer. You MUST use 'list_files', 'read_file', or 'query_api' to find the actual facts before answering.
+    2. When you need information, call the tools. Do not output the final answer yet.
+    3. ONLY AFTER you have successfully gathered all the facts from the tools, you must output your final answer as a raw JSON object EXACTLY like this:
     {
-      "answer": "Detailed answer",
-      "source": "wiki/path.md#section" // Only if from a wiki file, otherwise null
+      "answer": "Your detailed answer based on the tools",
+      "source": "wiki/filename.md#section-name"
     }
-    Do not use markdown blocks.
+    Note: The 'source' field is required if the answer came from a wiki file. If it came from query_api or source code, you can set "source": null. Do NOT wrap the JSON in ```json blocks.
     """
-    
-    messages = [
+        messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": question}
     ]
