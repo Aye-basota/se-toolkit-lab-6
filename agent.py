@@ -5,7 +5,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-# --- Ручная загрузка .env файлов (чтобы ключи точно нашлись) ---
+# --- Ручная загрузка .env файлов ---
 def load_env_file(filepath):
     try:
         with open(filepath, 'r') as f:
@@ -161,19 +161,19 @@ def main():
         sys.exit(1)
         
     question = sys.argv[1]
-
+    
     system_prompt = """You are a strict, automated system agent. You do not converse. You do not explain your thought process. 
     
     RULES:
-    1. NEVER guess the answer. If asked about the codebase (like frameworks or code), use 'list_files' to explore the directories (like '.' or 'src'), then use 'read_file' to read the files (like 'main.py' or 'pyproject.toml').
+    1. NEVER guess the answer. If asked about the codebase, use 'list_files', then 'read_file'.
     2. If asked about dynamic data, use 'query_api'.
-    3. WHEN CALLING A TOOL: Output ONLY the tool call. Do NOT output any regular text or conversational filler (like "Let me check...") before or alongside the tool call.
+    3. WHEN CALLING A TOOL: Output ONLY the tool call. Do NOT output any regular text.
     4. WHEN YOU HAVE THE FINAL ANSWER: Output a raw JSON object EXACTLY like this and nothing else:
     {
       "answer": "Your detailed answer based on the tools",
       "source": "path/to/file"
     }
-    Note: Set 'source' to null if the answer came from query_api. Do NOT wrap the JSON in ```json blocks. DO NOT say 'Here is the answer'.
+    Note: Set 'source' to null if the answer came from query_api. Do NOT wrap the JSON in markdown blocks.
     """
     
     messages = [
@@ -207,6 +207,9 @@ def main():
                 
                 tool_history_for_output.append({"tool": name, "args": args, "result": result})
                 
+                # Логируем вызов инструмента в stderr, чтобы ты это видел, но скрипт не сломался
+                sys.stderr.write(f"\n[DEBUG] Tool Called: {name} | Args: {args}\n")
+                
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call["id"],
@@ -214,19 +217,36 @@ def main():
                     "content": str(result)
                 })
         else:
-            # Fix: Handle empty content gracefully (NullType error prevention)
             content = message.get("content") or "{}"
-            try:
-                final_data = json.loads(content)
-                answer = final_data.get("answer", content)
-                source = final_data.get("source", None)
-            except:
-                answer = content
-                source = None
+            
+            # --- ЛОГИРУЕМ СЫРОЙ ОТВЕТ МОДЕЛИ ---
+            sys.stderr.write(f"\n[DEBUG] RAW FINAL RESPONSE FROM LLM:\n{content}\n")
+            
+            # --- УМНЫЙ ПАРСИНГ JSON ---
+            answer = content
+            source = None
+            
+            # Ищем границы JSON
+            start_idx = content.find('{')
+            end_idx = content.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                json_str = content[start_idx:end_idx+1]
+                try:
+                    final_data = json.loads(json_str)
+                    answer = final_data.get("answer", content) # Если ключа нет, берем весь текст
+                    source = final_data.get("source", None)
+                except Exception as e:
+                    sys.stderr.write(f"[DEBUG] Failed to parse extracted JSON: {e}\n")
+            else:
+                sys.stderr.write("[DEBUG] No JSON brackets found in response.\n")
                 
+            # --- ФОРМИРУЕМ ГАРАНТИРОВАННО ВАЛИДНЫЙ ВЫВОД ---
             final_output = {"answer": answer, "tool_calls": tool_history_for_output}
             if source:
                 final_output["source"] = source
+                
+            # Печатаем в stdout ТОЛЬКО один валидный JSON
             print(json.dumps(final_output))
             sys.exit(0)
             
