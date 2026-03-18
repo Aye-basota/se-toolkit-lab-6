@@ -71,3 +71,20 @@ def test_agent_tool_read_file_and_source():
     # Проверяем, что агент вызвал инструмент read_file
     tool_used = any(call.get("tool") == "read_file" for call in output.get("tool_calls", []))
     assert tool_used, "Agent did not use 'read_file' tool."
+def test_agent_tool_read_file_framework():
+    question = "What framework does the backend use? Check the code."
+    result = subprocess.run(["uv", "run", "agent.py", question], capture_output=True, text=True)
+    assert result.returncode == 0
+    
+    output = json.loads(result.stdout)
+    tool_used = any(call.get("tool") == "read_file" for call in output.get("tool_calls", []))
+    assert tool_used, "Agent did not use 'read_file' tool for a static question."
+
+def test_agent_tool_query_api():
+    question = "How many items are in the database?"
+    result = subprocess.run(["uv", "run", "agent.py", question], capture_output=True, text=True)
+    assert result.returncode == 0
+    
+    output = json.loads(result.stdout)
+    tool_used = any(call.get("tool") == "query_api" for call in output.get("tool_calls", []))
+    assert tool_used, "Agent did not use 'query_api' tool for a dynamic data question."
