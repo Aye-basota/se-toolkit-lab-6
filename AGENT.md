@@ -1,19 +1,19 @@
-# The System Agent
+# The System Agent Architecture
 
-This project implements an autonomous LLM agent capable of answering both static and dynamic questions about a deployed backend system.
+## Overview
+This project implements a fully functional AI-driven System Agent designed to seamlessly navigate project documentation, analyze source code, and interact with a live backend API. The agent operates via a continuous loop, interpreting user queries, making decisions on which tools to call, and synthesizing the final answer from the gathered context.
 
-## Architecture & Tools
-The agent operates using an agentic loop (up to 10 iterations) powered by the Qwen Code API (`qwen3-coder-plus`). It has three primary tools:
-1. **`list_files`**: Explores the local directory structure.
-2. **`read_file`**: Reads specific files to answer static questions (e.g., figuring out which web framework is used by inspecting `requirements.txt` or `main.py`).
-3. **`query_api`**: A newly added tool that allows the agent to make HTTP requests (GET, POST, etc.) directly to the deployed backend.
+## Available Tools
+The agent relies on three core tools to gather information:
+1. **`list_files(path)`**: Navigates the local directory structure. It is strictly secured against directory traversal attacks to ensure the agent cannot read files outside the project root.
+2. **`read_file(path)`**: Reads the content of source code or wiki documentation files. This is primarily used for finding static facts, standard operating procedures, and resolving technical queries based on the codebase.
+3. **`query_api(method, path, body)`**: Sends HTTP requests to the deployed backend system. This enables the agent to answer data-dependent questions (e.g., "How many items are in the database?") and verify real-time system states.
 
-## Environment & Authentication
-The agent strictly separates LLM credentials from backend credentials:
-- `LLM_API_KEY` and `LLM_API_BASE` are loaded from `.env.agent.secret` to authenticate with the LLM provider.
-- `LMS_API_KEY` is loaded from `.env.docker.secret` and is used to attach an `Authorization: Bearer` header to all `query_api` requests.
-- `AGENT_API_BASE_URL` dictates where the API requests are sent (defaults to `http://localhost:42002`).
+## Authentication and Environment Variables
+Security and dynamic configuration are paramount. The agent reads all configurations from environment variables rather than hardcoded strings:
+- `LLM_API_KEY`, `LLM_API_BASE`, and `LLM_MODEL` are used to authenticate with the chosen LLM provider.
+- `LMS_API_KEY` is strictly used to authenticate `query_api` requests via the `Authorization` and `X-API-Key` HTTP headers.
+- `AGENT_API_BASE_URL` specifies the backend location, allowing seamless transitions between local testing and production environments.
 
-## Strategy & Lessons Learned
-The system prompt explicitly guides the LLM to choose the right tool based on the question type: `read_file` for source code/wiki, and `query_api` for dynamic data like database counts or analytics scores. 
-During benchmarking with `run_eval.py`, a critical lesson was handling LLM responses where `content` is `null` while requesting a tool call, which previously caused an `AttributeError`. We also learned that truncating large API responses is necessary to prevent overwhelming the LLM's context window. My initial benchmark score improved significantly after refining the tool descriptions.
+## Lessons Learned and Tool Selection Strategy
+During development, the benchmark evaluations revealed that the LLM needs clear, explicit instructions to distinguish between reading documentation and querying the API. By updating the system prompt, the LLM learned to map questions about "frameworks" to `read_file` (looking at `pyproject.toml` or source code), while mapping questions about "item counts" or "status codes" directly to `query_api`. Providing structured JSON outputs proved to be the most reliable way to pipe the agent's findings back to the user without hallucinating markdown formatting.

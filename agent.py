@@ -1,79 +1,86 @@
+import os
 import sys
 import json
-import os
 import urllib.request
 import urllib.error
-from openai import OpenAI
-from dotenv import load_dotenv
+from pathlib import Path
 
-# --- SECURITY & FILE TOOLS ---
-BASE_DIR = os.path.abspath(".")
+# --- Configuration & Environment Variables ---
+LLM_API_KEY = os.environ.get("LLM_API_KEY")
+LLM_API_BASE = os.environ.get("LLM_API_BASE")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-coder-plus")
 
-def get_safe_path(target_path):
-    abs_target = os.path.abspath(target_path)
-    if not abs_target.startswith(BASE_DIR):
-        return None
-    return abs_target
+AGENT_API_BASE_URL = os.environ.get("AGENT_API_BASE_URL", "http://localhost:42002")
+LMS_API_KEY = os.environ.get("LMS_API_KEY", "")
 
-def list_files(path="."):
-    safe_path = get_safe_path(path)
-    if not safe_path or not os.path.isdir(safe_path):
-        return "Error: Directory not found or access denied."
-    try:
-        return "\n".join(os.listdir(safe_path))
-    except Exception as e:
-        return f"Error reading directory: {e}"
+# --- Tools Implementation ---
+
+def list_files(path):
+    """Lists files in a directory, ensuring it stays within the project root."""
+    base_dir = Path.cwd()
+    target_dir = (base_dir / path).resolve()
+    
+    if not str(target_dir).startswith(str(base_dir)):
+        return "Error: Directory traversal outside project root is not allowed."
+    
+    if not target_dir.exists() or not target_dir.is_dir():
+        return f"Error: Directory {path} does not exist."
+    
+    entries = [f.name for f in target_dir.iterdir()]
+    return "\n".join(entries) if entries else "Directory is empty."
 
 def read_file(path):
-    safe_path = get_safe_path(path)
-    if not safe_path or not os.path.isfile(safe_path):
-        return "Error: File not found or access denied."
+    """Reads a file, ensuring it stays within the project root."""
+    base_dir = Path.cwd()
+    target_file = (base_dir / path).resolve()
+    
+    if not str(target_file).startswith(str(base_dir)):
+        return "Error: File traversal outside project root is not allowed."
+    
+    if not target_file.exists() or not target_file.is_file():
+        return f"Error: File {path} does not exist."
+    
     try:
-        with open(safe_path, "r", encoding="utf-8") as f:
+        with open(target_file, "r", encoding="utf-8") as f:
             return f.read()
     except Exception as e:
-        return f"Error reading file: {e}"
+        return f"Error reading file: {str(e)}"
 
-# --- NEW TOOL: QUERY API ---
 def query_api(method, path, body=None):
-    base_url = os.getenv("AGENT_API_BASE_URL", "http://localhost:42002")
-    api_key = os.getenv("LMS_API_KEY", "")
+    """Queries the backend API using the LMS_API_KEY."""
+    url = f"{AGENT_API_BASE_URL.rstrip('/')}/{path.lstrip('/')}"
+    req = urllib.request.Request(url, method=method.upper())
     
-    # Формируем корректный URL
-    url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}"
-    }
-    if body:
-        headers["Content-Type"] = "application/json"
+    if LMS_API_KEY:
+        req.add_header("Authorization", f"Bearer {LMS_API_KEY}")
+        req.add_header("X-API-Key", LMS_API_KEY)
         
-    data = body.encode('utf-8') if body else None
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    
+    if body:
+        req.add_header("Content-Type", "application/json")
+        req.data = body.encode("utf-8")
+        
     try:
         with urllib.request.urlopen(req) as response:
-            status_code = response.getcode()
-            resp_body = response.read().decode('utf-8')
+            return json.dumps({"status_code": response.getcode(), "body": response.read().decode("utf-8")})
     except urllib.error.HTTPError as e:
-        status_code = e.code
-        resp_body = e.read().decode('utf-8')
+        return json.dumps({"status_code": e.code, "body": e.read().decode("utf-8")})
     except Exception as e:
-        return json.dumps({"status_code": 500, "body": f"Request failed: {str(e)}"})
-        
-    return json.dumps({"status_code": status_code, "body": resp_body})
+        return json.dumps({"error": str(e)})
 
-# --- LLM SCHEMAS ---
-# --- LLM SCHEMAS ---
-TOOLS = [
+# --- Tool Schemas for the LLM ---
+
+TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
             "name": "list_files",
-            "description": "List files and directories. ALWAYS use this first to discover wiki files or project structure.",
+            "description": "List files and directories at a given relative path from the project root.",
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": "Directory path, e.g., '.' or 'wiki'"}}
+                "properties": {
+                    "path": {"type": "string", "description": "Relative directory path (e.g., 'wiki' or '.')"}
+                },
+                "required": ["path"]
             }
         }
     },
@@ -81,10 +88,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read source code or documentation files. You MUST use this tool to read the actual file contents before answering any questions about the wiki or code.",
+            "description": "Read the contents of a file. Use this to read documentation or source code.",
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": "File path, e.g., 'wiki/github.md'"}}
+                "properties": {
+                    "path": {"type": "string", "description": "Relative file path (e.g., 'wiki/git-workflow.md')"}
+                },
+                "required": ["path"]
             }
         }
     },
@@ -92,132 +102,140 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "query_api",
-            "description": "Call the deployed backend API to answer data-dependent questions (e.g., item count, scores).",
+            "description": "Call the deployed backend API. Use this to find dynamic data (like item counts), completion rates, or system statuses.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "method": {"type": "string", "enum": ["GET", "POST", "PUT", "DELETE"]},
-                    "path": {"type": "string", "description": "API endpoint, e.g., /items/"},
-                    "body": {"type": "string", "description": "JSON request body, if needed"}
+                    "method": {"type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]},
+                    "path": {"type": "string", "description": "API endpoint path (e.g., '/items/', '/analytics/completion-rate')"},
+                    "body": {"type": "string", "description": "Optional JSON request body as a string."}
                 },
                 "required": ["method", "path"]
             }
         }
     }
 ]
-SYSTEM_PROMPT = """You are an autonomous investigation machine. YOU ARE STRICTLY FORBIDDEN FROM SPEAKING.
-You do not have a voice. You cannot write conversational text. You can ONLY do exactly two things:
 
-OPTION 1: Call a tool (list_files, read_file, query_api) to gather data. Do NOT write any text alongside the tool call.
-OPTION 2: Output the final answer as a RAW JSON object.
+# --- LLM Client ---
 
-CRITICAL: Never write "Let me check", "I will", or "Here is". 
-If you have the answer, output ONLY valid JSON format:
-{"answer": "Your detailed answer", "source": "path/to/file or API"}"""
-def main():
-    # Загружаем обе среды
-    load_dotenv('.env.agent.secret')
-    load_dotenv('.env.docker.secret')
-
-    if len(sys.argv) < 2:
+def call_llm(messages):
+    """Sends messages and tools to the LLM via OpenAI-compatible REST API."""
+    data = {
+        "model": LLM_MODEL,
+        "messages": messages,
+        "tools": TOOLS_SCHEMA,
+        "tool_choice": "auto"
+    }
+    
+    req = urllib.request.Request(f"{LLM_API_BASE.rstrip('/')}/chat/completions", method="POST")
+    req.add_header("Authorization", f"Bearer {LLM_API_KEY}")
+    req.add_header("Content-Type", "application/json")
+    req.data = json.dumps(data).encode("utf-8")
+    
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception as e:
+        sys.stderr.write(f"LLM API Error: {str(e)}\n")
         sys.exit(1)
 
+# --- Main Agentic Loop ---
+
+def main():
+    if len(sys.argv) < 2:
+        sys.stderr.write("Usage: uv run agent.py '<question>'\n")
+        sys.exit(1)
+        
     question = sys.argv[1]
-
-    client = OpenAI(
-        api_key=os.getenv("LLM_API_KEY"),
-        base_url=os.getenv("LLM_API_BASE")
-    )
-    model = os.getenv("LLM_MODEL", "qwen3-coder-plus")
-
+    
+    system_prompt = """You are an intelligent system agent with access to the project's files and a live backend API.
+    - Use 'list_files' and 'read_file' to answer questions about documentation, wikis, or source code.
+    - Use 'query_api' to answer questions about dynamic system states (e.g., "How many items?", "What is the completion rate?").
+    
+    IMPORTANT: Once you have the final answer, you MUST return ONLY a valid JSON object in this exact format:
+    {
+      "answer": "Your detailed answer here",
+      "source": "wiki/path.md#section-name" // Include this ONLY if the answer came from a wiki file. Otherwise, omit it or set to null.
+    }
+    Do not wrap the JSON in markdown blocks (like ```json), just output the raw JSON object.
+    """
+    
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": question}
     ]
-
-    tool_calls_history = []
     
-    for _ in range(10):
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=TOOLS
-        )
+    tool_history_for_output = []
+    
+    for _ in range(10): # Max 10 iterations
+        response = call_llm(messages)
+        message = response["choices"][0]["message"]
         
-        message = response.choices[0].message
+        # Keep track of conversation
+        messages.append(message)
         
-        # --- ДОБАВЛЯЕМ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ ---
-        print(f"\n[DEBUG] LLM Content: {message.content!r}", file=sys.stderr)
-        
-        if message.tool_calls:
-            for tc in message.tool_calls:
-                print(f"[DEBUG] Tool Call: {tc.function.name}({tc.function.arguments})", file=sys.stderr)
-            # ----------------------------------------
-            
-            # FIX: Предотвращаем NoneType error, если LLM вернула пустой контент вместе с вызовом
-            msg_dict = {"role": "assistant", "tool_calls": [t.model_dump() for t in message.tool_calls]}
-            if message.content:
-                msg_dict["content"] = message.content
-            else:
-                msg_dict["content"] = ""
-            messages.append(msg_dict)
-            
-            for tool_call in message.tool_calls:
-                func_name = tool_call.function.name
-                args_str = tool_call.function.arguments
+        # Check if LLM wants to use a tool
+        if "tool_calls" in message and message["tool_calls"]:
+            for tool_call in message["tool_calls"]:
+                name = tool_call["function"]["name"]
                 try:
-                    args = json.loads(args_str)
-                except:
+                    args = json.loads(tool_call["function"]["arguments"])
+                except json.JSONDecodeError:
                     args = {}
-
-                # Улучшенная защита от пустых путей
-                if func_name == "list_files":
-                    result = list_files(args.get("path") or ".")
-                elif func_name == "read_file":
-                    result = read_file(args.get("path") or "")
-                elif func_name == "query_api":
-                    result = query_api(args.get("method"), args.get("path"), args.get("body"))
+                
+                # Execute the correct tool
+                if name == "list_files":
+                    result = list_files(args.get("path", "."))
+                elif name == "read_file":
+                    result = read_file(args.get("path", ""))
+                elif name == "query_api":
+                    result = query_api(args.get("method", "GET"), args.get("path", ""), args.get("body"))
                 else:
-                    result = "Error: Unknown function."
-                    
-                tool_calls_history.append({
-                    "tool": func_name,
+                    result = f"Error: Unknown tool {name}"
+                
+                # Record for CLI output
+                tool_history_for_output.append({
+                    "tool": name,
                     "args": args,
-                    "result": str(result)[:800]
+                    "result": result
                 })
                 
+                # Feed result back to LLM
                 messages.append({
                     "role": "tool",
-                    "tool_call_id": tool_call.id,
+                    "tool_call_id": tool_call["id"],
+                    "name": name,
                     "content": str(result)
                 })
         else:
-            final_text = message.content.strip() if message.content else ""
-            
-            # Очищаем от возможных Markdown-тегов, которые LLM так любит добавлять
-            clean_text = final_text
-            if clean_text.startswith("```json"):
-                clean_text = clean_text[7:].strip()
-                if clean_text.endswith("```"):
-                    clean_text = clean_text[:-3].strip()
-            elif clean_text.startswith("```"):
-                clean_text = clean_text[3:].strip()
-                if clean_text.endswith("```"):
-                    clean_text = clean_text[:-3].strip()
-
+            # No tool calls means the LLM gave a final text response.
+            content = message.get("content") or "{}"
             try:
-                parsed = json.loads(clean_text)
-                answer_val = parsed.get("answer", clean_text)
-                source_val = parsed.get("source", None)
+                # Try to parse the JSON the LLM was instructed to provide
+                final_data = json.loads(content)
+                answer = final_data.get("answer", content)
+                source = final_data.get("source", None)
             except json.JSONDecodeError:
-                answer_val = clean_text
-                source_val = None
-
-            print(json.dumps({"answer": answer_val, "source": source_val, "tool_calls": tool_calls_history}))
+                # Fallback if LLM didn't format as JSON
+                answer = content
+                source = None
+                
+            # Print final JSON to stdout and exit
+            final_output = {
+                "answer": answer,
+                "tool_calls": tool_history_for_output
+            }
+            if source:
+                final_output["source"] = source
+                
+            print(json.dumps(final_output))
             sys.exit(0)
-
-    print(json.dumps({"answer": "Error: Timeout", "source": None, "tool_calls": tool_calls_history}))
-    sys.exit(0)
+            
+    # If loop exits without a final answer
+    print(json.dumps({
+        "answer": "Error: Reached maximum tool call iterations.",
+        "tool_calls": tool_history_for_output
+    }))
 
 if __name__ == "__main__":
     main()

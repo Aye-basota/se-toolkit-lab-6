@@ -1,14 +1,14 @@
 # Task 3 Implementation Plan
 
-**Goal**: Add `query_api` tool to query the backend and answer system/data questions.
+## Goal
+Add a `query_api` tool to the agent to allow it to communicate with the deployed backend API, retrieve dynamic data, and read system facts, effectively transitioning it from a documentation reader to a system agent.
 
-**Architecture**:
-1. **Environment**: Load both `.env.agent.secret` (LLM) and `.env.docker.secret` (LMS_API_KEY) using `dotenv`. Default API base to `http://localhost:42002`.
-2. **Tool `query_api`**: 
-   - Accepts `method`, `path`, and optional `body`.
-   - Uses standard `urllib` to make HTTP requests with `Authorization: Bearer <LMS_API_KEY>`.
-   - Returns a JSON string with `status_code` and `body`.
-3. **Agent Updates**:
-   - Update `SYSTEM_PROMPT` to explain when to use wiki vs API vs source code.
-   - Handle the LLM returning `content: null` during tool calls (`msg.content or ""`) to prevent `NoneType` errors.
-   - Make the `source` field optional in the final JSON output.
+## Strategy
+1.  **Tool Schema**: Define `query_api` in the LLM tool list with parameters `method`, `path`, and an optional `body`.
+2.  **Implementation**: Use Python's `urllib.request` to send HTTP requests to `AGENT_API_BASE_URL` (defaulting to `http://localhost:42002`).
+3.  **Authentication**: Inject `LMS_API_KEY` from the environment variables into the request headers (`Authorization` / `X-API-Key`).
+4.  **Agentic Loop Update**: Add a handler for `query_api` alongside `read_file` and `list_files`.
+5.  **Prompt Engineering**: Update the system prompt to instruct the LLM on when to read files (wiki/source) versus when to query the API (dynamic database items, completion rates, etc.).
+
+## Iteration Strategy
+I will run `uv run run_eval.py` locally to fix any schema misunderstandings or JSON formatting issues. If the LLM loops endlessly, I will refine the system prompt to be more direct.
