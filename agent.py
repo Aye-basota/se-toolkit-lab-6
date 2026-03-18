@@ -5,7 +5,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-# --- Ручная загрузка .env файлов ---
+# --- Загрузка окружения ---
 def load_env_file(filepath):
     try:
         with open(filepath, 'r') as f:
@@ -21,7 +21,6 @@ def load_env_file(filepath):
 load_env_file('.env.agent.secret')
 load_env_file('.env.docker.secret')
 
-# --- Configuration & Environment Variables ---
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_API_BASE = os.environ.get("LLM_API_BASE", "https://api.openai.com/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-coder-plus")
@@ -29,22 +28,24 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-coder-plus")
 AGENT_API_BASE_URL = os.environ.get("AGENT_API_BASE_URL", "http://localhost:42002")
 LMS_API_KEY = os.environ.get("LMS_API_KEY", "")
 
-# --- Tools Implementation ---
-def list_files(path):
+# --- Инструменты (с защитой от None-аргументов) ---
+def list_files(path="."):
+    if not path: path = "."
     base_dir = Path.cwd()
     target_dir = (base_dir / path).resolve()
     if not str(target_dir).startswith(str(base_dir)):
-        return "Error: Directory traversal outside project root is not allowed."
+        return "Error: Directory traversal not allowed."
     if not target_dir.exists() or not target_dir.is_dir():
         return f"Error: Directory {path} does not exist."
     entries = [f.name for f in target_dir.iterdir()]
     return "\n".join(entries) if entries else "Directory is empty."
 
-def read_file(path):
+def read_file(path=""):
+    if not path: return "Error: Path is required."
     base_dir = Path.cwd()
     target_file = (base_dir / path).resolve()
     if not str(target_file).startswith(str(base_dir)):
-        return "Error: File traversal outside project root is not allowed."
+        return "Error: File traversal not allowed."
     if not target_file.exists() or not target_file.is_file():
         return f"Error: File {path} does not exist."
     try:
@@ -53,7 +54,8 @@ def read_file(path):
     except Exception as e:
         return f"Error reading file: {str(e)}"
 
-def query_api(method, path, body=None):
+def query_api(method="GET", path="", body=None):
+    if not path: return "Error: API path is required."
     url = f"{AGENT_API_BASE_URL.rstrip('/')}/{path.lstrip('/')}"
     req = urllib.request.Request(url, method=method.upper())
     
@@ -73,18 +75,15 @@ def query_api(method, path, body=None):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-# --- Tool Schemas ---
 TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
             "name": "list_files",
-            "description": "List files and directories at a given relative path from the project root.",
+            "description": "List files in a directory.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Relative directory path"}
-                },
+                "properties": {"path": {"type": "string", "description": "Relative directory path"}},
                 "required": ["path"]
             }
         }
@@ -93,12 +92,10 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read the contents of a file. Use this to read documentation or source code.",
+            "description": "Read the contents of a file.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Relative file path"}
-                },
+                "properties": {"path": {"type": "string", "description": "Relative file path"}},
                 "required": ["path"]
             }
         }
@@ -107,13 +104,13 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "query_api",
-            "description": "Call the deployed backend API to find dynamic data or system statuses.",
+            "description": "Query the deployed backend.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "method": {"type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]},
-                    "path": {"type": "string", "description": "API endpoint path (e.g., '/items/')"},
-                    "body": {"type": "string", "description": "Optional JSON request body as a string."}
+                    "path": {"type": "string", "description": "API endpoint path"},
+                    "body": {"type": "string", "description": "Optional JSON body"}
                 },
                 "required": ["method", "path"]
             }
@@ -121,64 +118,46 @@ TOOLS_SCHEMA = [
     }
 ]
 
-# --- LLM Client ---
 def call_llm(messages):
-    if not LLM_API_KEY:
-        sys.stderr.write("Error: LLM_API_KEY is missing. Check your .env.agent.secret file.\n")
-        sys.exit(1)
-        
     data = {
         "model": LLM_MODEL,
         "messages": messages,
         "tools": TOOLS_SCHEMA,
-        "tool_choice": "auto"
+        "tool_choice": "auto",
+        "parallel_tool_calls": False  # ЗАЩИТА: Явно отключаем параллельные вызовы
     }
     
-    url = f"{LLM_API_BASE.rstrip('/')}/chat/completions"
-    req = urllib.request.Request(url, method="POST")
+    req = urllib.request.Request(f"{LLM_API_BASE.rstrip('/')}/chat/completions", method="POST")
     req.add_header("Authorization", f"Bearer {LLM_API_KEY}")
     req.add_header("Content-Type", "application/json")
     req.data = json.dumps(data).encode("utf-8")
     
     try:
         with urllib.request.urlopen(req) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            if "choices" not in result:
-                sys.stderr.write(f"API Error Response: {json.dumps(result)}\n")
-                sys.exit(1)
-            return result
-    except urllib.error.HTTPError as e:
-        sys.stderr.write(f"HTTP Error {e.code}: {e.read().decode('utf-8')}\n")
-        sys.exit(1)
+            return json.loads(response.read().decode("utf-8"))
     except Exception as e:
-        sys.stderr.write(f"Network/LLM API Error: {str(e)}\n")
+        sys.stderr.write(f"LLM API Error: {str(e)}\n")
         sys.exit(1)
 
-# --- Main Loop ---
 def main():
-    if len(sys.argv) < 2:
-        sys.stderr.write("Usage: uv run agent.py '<question>'\n")
-        sys.exit(1)
-        
+    if len(sys.argv) < 2: sys.exit(1)
     question = sys.argv[1]
     
-    system_prompt = """You are a strictly constrained file-reading robot. YOU HAVE AMNESIA. You know NOTHING about programming, GitHub, frameworks, or this project.
-    You MUST NOT answer any question from your internal memory.
-    
-    CRITICAL WORKFLOW - YOU MUST FOLLOW THESE STEPS:
-    1. For questions about wiki, documentation, or code: YOU MUST FIRST call 'list_files' to search directories (e.g., 'wiki' or '.').
-    2. Then, YOU MUST call 'read_file' to read the specific document.
-    3. For questions about database items, rates, or system status: YOU MUST call 'query_api'.
-    4. NEVER output the final answer until you have successfully used the tools to find it.
-    
-    FINAL ANSWER FORMAT:
-    Once you find the information in the files or API, output ONLY a raw JSON object. No markdown, no conversational text.
-    {
-      "answer": "The exact answer found in the project",
-      "source": "wiki/path.md#section-name"
-    }
-    Note: 'source' is STRICTLY REQUIRED if you used 'read_file' (include file path and heading anchor). If you used 'query_api', set "source": null.
-    """ 
+    system_prompt = """You are a highly capable agent, but you MUST follow these constraints:
+
+1. DO NOT USE PARALLEL TOOL CALLS. Call ONLY ONE tool at a time.
+2. If asked about the Python framework or backend, use 'list_files' on '.' or 'backend', then 'read_file' on 'main.py' or 'pyproject.toml' to find the framework (like FastAPI, Flask, etc.).
+3. If asked about data (items, rates), use 'query_api'.
+4. NO CONVERSATION. Do not output text like 'Let me check...' when calling a tool.
+
+FINAL ANSWER FORMAT:
+When you have the final answer, output ONLY a JSON object:
+{
+  "answer": "Your detailed answer",
+  "source": "filepath#section"
+}
+If the answer comes from 'query_api' or 'main.py' without a specific section, set "source": null.
+"""
     
     messages = [
         {"role": "system", "content": system_prompt},
@@ -189,68 +168,59 @@ def main():
     
     for _ in range(10):
         response = call_llm(messages)
+        if "choices" not in response: sys.exit(1)
+            
         message = response["choices"][0]["message"]
         messages.append(message)
         
         if "tool_calls" in message and message["tool_calls"]:
-            for tool_call in message["tool_calls"]:
-                name = tool_call["function"]["name"]
-                try:
-                    args = json.loads(tool_call["function"]["arguments"])
-                except:
-                    args = {}
-                
-                if name == "list_files":
-                    result = list_files(args.get("path", "."))
-                elif name == "read_file":
-                    result = read_file(args.get("path", ""))
-                elif name == "query_api":
-                    result = query_api(args.get("method", "GET"), args.get("path", ""), args.get("body"))
-                else:
-                    result = f"Error: Unknown tool {name}"
-                
-                tool_history_for_output.append({"tool": name, "args": args, "result": result})
-                
-                # Логируем вызов инструмента в stderr, чтобы ты это видел, но скрипт не сломался
-                sys.stderr.write(f"\n[DEBUG] Tool Called: {name} | Args: {args}\n")
-                
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "name": name,
-                    "content": str(result)
-                })
+            # ЗАЩИТА: Берем только первый тул, даже если модель вернула несколько
+            tool_call = message["tool_calls"][0] 
+            name = tool_call["function"]["name"]
+            try:
+                args = json.loads(tool_call["function"]["arguments"])
+            except:
+                args = {}
+            
+            if name == "list_files": result = list_files(args.get("path", "."))
+            elif name == "read_file": result = read_file(args.get("path", ""))
+            elif name == "query_api": result = query_api(args.get("method", "GET"), args.get("path", ""), args.get("body"))
+            else: result = f"Error: Unknown tool {name}"
+            
+            tool_history_for_output.append({"tool": name, "args": args, "result": str(result)[:300] + "..." if len(str(result))>300 else result})
+            
+            # ЗАЩИТА: Перезаписываем историю, чтобы API не ругалось на несовпадение количества вызовов
+            messages[-1]["tool_calls"] = [tool_call] 
+            
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call["id"],
+                "name": name,
+                "content": str(result)
+            })
         else:
-            content = message.get("content") or "{}"
+            content = message.get("content", "") or ""
             
-            # --- ЛОГИРУЕМ СЫРОЙ ОТВЕТ МОДЕЛИ ---
-            sys.stderr.write(f"\n[DEBUG] RAW FINAL RESPONSE FROM LLM:\n{content}\n")
-            
-            # --- УМНЫЙ ПАРСИНГ JSON ---
-            answer = content
-            source = None
-            
-            # Ищем границы JSON
+            # Парсинг финального ответа
             start_idx = content.find('{')
             end_idx = content.rfind('}')
             
             if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                json_str = content[start_idx:end_idx+1]
                 try:
-                    final_data = json.loads(json_str)
-                    answer = final_data.get("answer", content) # Если ключа нет, берем весь текст
+                    final_data = json.loads(content[start_idx:end_idx+1])
+                    answer = final_data.get("answer", content)
                     source = final_data.get("source", None)
-                except Exception as e:
-                    sys.stderr.write(f"[DEBUG] Failed to parse extracted JSON: {e}\n")
+                except:
+                    answer = content
+                    source = None
             else:
-                sys.stderr.write("[DEBUG] No JSON brackets found in response.\n")
+                answer = content
+                source = None
                 
-            # --- ФОРМИРУЕМ ГАРАНТИРОВАННО ВАЛИДНЫЙ ВЫВОД ---
             final_output = {"answer": answer, "tool_calls": tool_history_for_output}
             if source is not None:
                 final_output["source"] = source
-
-            # Печатаем в stdout ТОЛЬКО один валидный JSON
+                
             print(json.dumps(final_output))
             sys.exit(0)
             
