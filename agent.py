@@ -162,7 +162,7 @@ def main():
         
     question = sys.argv[1]
     
-   system_prompt = """You are a strictly constrained file-reading robot. YOU HAVE AMNESIA. You know NOTHING about programming, GitHub, frameworks, or this project.
+    system_prompt = """You are a strictly constrained file-reading robot. YOU HAVE AMNESIA. You know NOTHING about programming, GitHub, frameworks, or this project.
     You MUST NOT answer any question from your internal memory.
     
     CRITICAL WORKFLOW - YOU MUST FOLLOW THESE STEPS:
