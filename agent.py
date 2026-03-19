@@ -34,27 +34,30 @@ def read_file(path):
     except Exception as e:
         return f"Error reading file: {e}"
 
-def query_api(method: str, path: str, body: str = None):
+def query_api(method: str, path: str, body: str = None, auth: bool = True):
     """
-    Query the backend API with authentication.
-    
+    Query the backend API with optional authentication.
+
     Args:
         method: HTTP method (GET, POST, etc.)
         path: API endpoint path (e.g., '/items/', '/analytics/completion-rate')
         body: Optional JSON request body for POST/PUT requests
-    
+        auth: Whether to include Authorization header (default True)
+
     Returns:
         JSON string with status_code and body, or error message
     """
     api_base_url = os.getenv("AGENT_API_BASE_URL", "http://localhost:42002")
     lms_api_key = os.getenv("LMS_API_KEY")
-    
-    if not lms_api_key:
+
+    if not lms_api_key and auth:
         return "Error: LMS_API_KEY not configured"
-    
+
     url = f"{api_base_url}{path}"
-    headers = {"Authorization": f"Bearer {lms_api_key}"}
-    
+    headers = {}
+    if auth and lms_api_key:
+        headers["Authorization"] = f"Bearer {lms_api_key}"
+
     try:
         with httpx.Client() as client:
             if method.upper() == "GET":
@@ -67,7 +70,7 @@ def query_api(method: str, path: str, body: str = None):
                 response = client.delete(url, headers=headers, timeout=30.0)
             else:
                 return f"Error: Unsupported HTTP method '{method}'"
-        
+
         result = {
             "status_code": response.status_code,
             "body": response.json() if response.content else None
@@ -114,13 +117,14 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "query_api",
-            "description": "Query the backend API to get system facts or data. Use for questions about items, analytics, learners, or API endpoints. Returns JSON with status_code and body.",
+            "description": "Query the backend API to get system facts or data. Use for questions about items, analytics, learners, or API endpoints. Returns JSON with status_code and body. Set auth=false to test unauthenticated endpoints.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "method": {"type": "string", "description": "HTTP method (GET, POST, PUT, DELETE)"},
                     "path": {"type": "string", "description": "API endpoint path (e.g., '/items/', '/analytics/completion-rate')"},
-                    "body": {"type": "string", "description": "Optional JSON request body for POST/PUT requests"}
+                    "body": {"type": "string", "description": "Optional JSON request body for POST/PUT requests"},
+                    "auth": {"type": "boolean", "description": "Whether to include Authorization header (default true). Set to false to test unauthenticated access."}
                 },
                 "required": ["method", "path"]
             }
@@ -142,6 +146,7 @@ CRITICAL RULES:
 4. Do not include phrases like "Let me", "Now I'll", "I see", "I need to" in your final answer.
 5. When asked about bugs, errors, or risky code: read the source file completely and look for division operations, None-unsafe calls, missing error handling, or type mismatches.
 6. Use the correct file paths: backend routers are in 'backend/app/routers/', not 'backend/app/api/routers/'.
+7. When asked about authentication or status codes without auth: use query_api with auth=false.
 
 When answering:
 1. For wiki/documentation questions: use list_files to find files, then read_file to get the content
@@ -149,6 +154,7 @@ When answering:
 3. For system/data questions when backend is available: use query_api with appropriate endpoint
 4. For error diagnosis: first query the API to see the error, then read the source code to find the bug
 5. For comparison questions: read ALL relevant files before giving your answer
+6. For authentication questions: use query_api with auth=false to test unauthenticated access
 
 When you have ALL the information needed, output ONLY a RAW JSON object (no other text, no markdown, no backticks):
 {"answer": "Your complete factual answer here", "source": "path/to/file.md#section"}
@@ -218,7 +224,8 @@ def main():
                         result = query_api(
                             args.get("method", "GET"),
                             args.get("path", ""),
-                            args.get("body")
+                            args.get("body"),
+                            args.get("auth", True)
                         )
                     else:
                         result = "Error: Unknown function."
