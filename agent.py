@@ -53,7 +53,7 @@ def query_api(method: str, path: str, body: str = None):
         return "Error: LMS_API_KEY not configured"
     
     url = f"{api_base_url}{path}"
-    headers = {"X-API-Key": lms_api_key}
+    headers = {"Authorization": f"Bearer {lms_api_key}"}
     
     try:
         with httpx.Client() as client:
