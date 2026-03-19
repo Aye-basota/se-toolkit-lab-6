@@ -97,7 +97,7 @@ def _run_agent(question: str, timeout: int = 60):
     """Run agent.py with the question. Returns (answer_dict, error_msg)."""
     try:
         result = subprocess.run(
-            [sys.executable, "agent.py", question],
+            ["uv", "run", "agent.py", question],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -147,12 +147,12 @@ def _match(text: str, rule: dict) -> bool:
         return bool(re.search(rule["regex"], text, re.IGNORECASE))
 
     if "numeric_gt" in rule:
-        numbers = re.findall(r"[\d.]+", text)
+        numbers = re.findall(r"\d+(?:\.\d+)?", text)
         return any(float(n) > rule["numeric_gt"] for n in numbers if n)
 
     if "numeric_range" in rule:
         lo, hi = rule["numeric_range"]
-        numbers = re.findall(r"[\d.]+", text)
+        numbers = re.findall(r"\d+(?:\.\d+)?", text)
         return any(lo <= float(n) <= hi for n in numbers if n)
 
     return False
