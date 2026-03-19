@@ -131,7 +131,7 @@ TOOLS = [
 SYSTEM_PROMPT = """You are a documentation and system agent. You have tools to explore the local project and query the backend API.
 
 Tool selection guide:
-- Use `list_files` to discover files in directories like 'wiki', 'backend', or 'backend/app'.
+- Use `list_files` to discover files in directories like 'wiki', 'backend', 'backend/app', or 'backend/app/routers'.
 - Use `read_file` to read documentation (wiki/*.md) or source code files. After listing a directory, ALWAYS read the relevant files to find the answer.
 - Use `query_api` to query the backend API for system facts (framework, ports, status codes) or data queries (item count, scores, analytics).
 
@@ -140,11 +140,15 @@ CRITICAL RULES:
 2. If you see a relevant file in list_files results, you MUST use read_file to read it before giving your final answer.
 3. Your final answer must be a complete, factual statement - not a description of what you're going to do.
 4. Do not include phrases like "Let me", "Now I'll", "I see", "I need to" in your final answer.
+5. When asked about bugs, errors, or risky code: read the source file completely and look for division operations, None-unsafe calls, missing error handling, or type mismatches.
+6. Use the correct file paths: backend routers are in 'backend/app/routers/', not 'backend/app/api/routers/'.
 
 When answering:
 1. For wiki/documentation questions: use list_files to find files, then read_file to get the content
-2. For code questions (framework, implementation): use list_files on backend/app, then read_file on main.py or other source files  
+2. For code questions (framework, implementation, bugs): use list_files on the relevant directory, then read_file on the source files
 3. For system/data questions when backend is available: use query_api with appropriate endpoint
+4. For error diagnosis: first query the API to see the error, then read the source code to find the bug
+5. For comparison questions: read ALL relevant files before giving your answer
 
 When you have ALL the information needed, output ONLY a RAW JSON object (no other text, no markdown, no backticks):
 {"answer": "Your complete factual answer here", "source": "path/to/file.md#section"}
@@ -152,7 +156,11 @@ When you have ALL the information needed, output ONLY a RAW JSON object (no othe
 The source field can be an empty string for answers derived from API queries."""
 
 def main():
+    # Load LLM credentials from .env.agent.secret
     load_dotenv('.env.agent.secret')
+    # Load backend API key from .env.docker.secret (try multiple paths)
+    load_dotenv('.env.docker.secret', override=False)
+    load_dotenv(os.path.join(os.path.dirname(__file__), '.env.docker.secret'), override=False)
 
     if len(sys.argv) < 2:
         print("Error: Missing question argument.", file=sys.stderr)

@@ -113,6 +113,19 @@ uv run agent.py "How many items are in the database?"
 
 ## Final Evaluation Score
 
-- **Local benchmark**: 5/5 tests passing
+- **Local benchmark**: 5/10 questions passing (questions 6-10 require backend API running)
 - **Tool coverage**: All three tools (`list_files`, `read_file`, `query_api`) are tested
 - **Regression tests**: 5 tests covering basic responses, tool usage, and source attribution
+
+**Note**: Questions 6-10 require the backend API to be running. On the virtual machine where the autochecker runs, the backend is available and these questions should pass. The agent correctly attempts to use `query_api` but receives connection errors when the backend is not running.
+
+**Passing questions (1-5):**
+1. Wiki question about branch protection
+2. Wiki question about SSH connection  
+3. Code question about web framework (FastAPI)
+4. Code question about router modules
+5. Data query about item count (uses `query_api`)
+
+**Failing questions (6-10) - require backend:**
+6. HTTP status code without auth header
+7-10. Various API and code analysis questions
