@@ -148,6 +148,7 @@ CRITICAL RULES:
 6. Use the correct file paths: backend routers are in 'backend/app/routers/', not 'backend/app/api/routers/'.
 7. When asked about authentication or status codes without auth: use query_api with auth=false.
 8. NEVER use markdown, backticks, or code blocks in your final answer. Output ONLY raw JSON.
+9. When asked about endpoint crashes: query the endpoint with different parameters to reproduce the error, then read the router source code to find the exact line causing the crash.
 
 When answering:
 1. For wiki/documentation questions: use list_files to find files, then read_file to get the content
@@ -157,6 +158,7 @@ When answering:
 5. For comparison questions: read ALL relevant files before giving your answer
 6. For authentication questions: use query_api with auth=false to test unauthenticated access
 7. For analytics bug questions: query with ?lab=lab-99 parameter, then read analytics.py to find division by zero or None-unsafe code
+8. For endpoint crash questions: try multiple lab values (lab-01, lab-99, etc.), identify which crashes, then read analytics.py to find the buggy line
 
 When you have ALL the information needed, output ONLY a RAW JSON object (no other text, no markdown, no backticks):
 {"answer": "Your complete factual answer here", "source": "path/to/file.md#section"}
